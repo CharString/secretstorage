@@ -41,6 +41,18 @@ class CollectionTest(unittest.TestCase):
 		self.collection.set_label(old_label)
 		self.assertEqual(self.collection.get_label(), old_label)
 
+	def test_opens_default_collection_by_default(self) -> None:
+		collection = Collection()
+		self.assertEqual(collection.get_label(), 'Login')
+		collection.close()
+
+	def test_closes_connction_as_context_manager(self) -> None:
+		with Collection() as collection:
+			self.assertEqual(collection.get_label(), 'Login')
+		with self.assertRaises(OSError):
+			collection.get_label()
+
+
 
 @unittest.skipIf(BUS_NAME == "org.freedesktop.secrets",
                 "This test should only be run with the mocked server.")

@@ -11,7 +11,7 @@ from typing import Any, List, Tuple
 
 from jeepney import DBusAddress
 from jeepney.bus_messages import MatchRule
-from jeepney.integrate.blocking import DBusConnection
+from jeepney.integrate.blocking import DBusConnection, connect_and_authenticate
 from jeepney.low_level import Message
 from jeepney.wrappers import new_method_call, Properties, DBusErrorResponse
 from secretstorage.defines import DBUS_UNKNOWN_METHOD, DBUS_NO_SUCH_OBJECT, \
@@ -169,3 +169,59 @@ def add_match_rules(connection: DBusConnection) -> None:
 	                          connection=connection)
 	dbus.bus_name = 'org.freedesktop.DBus'
 	dbus.call('AddMatch', 's', rule.serialise())
+
+
+def dbus_init() -> DBusConnection:
+	"""Returns a new connection to the session bus, instance of
+	jeepney's :class:`DBusConnection` class. This connection can
+	then be passed to various SecretStorage functions, such as
+	:func:`~secretstorage.collection.get_default_collection`.
+
+	It can be used as conext manager that closes the D-Bus socket
+	automatically on exit.
+
+	Example of usage:
+
+	.. code-block:: python
+
+	   with secretstorage.dbus_init() as conn:
+		   collection = secretstorage.get_default_collection(conn)
+		   items = collection.search_items({'application': 'myapp'})
+
+	.. versionchanged:: 3.0
+	   Before the port to Jeepney, this function returned an
+	   instance of :class:`dbus.SessionBus` class.
+
+	.. versionchanged:: 3.1
+	   This function no longer accepts any arguments.
+	"""
+	try:
+		connection = connect_and_authenticate()
+		add_match_rules(connection)
+		return ClosingDBusConnectionWrapper(connection)
+	except KeyError as ex:
+		# os.environ['DBUS_SESSION_BUS_ADDRESS'] may raise it
+		reason = "Environment variable {} is unset".format(ex.args[0])
+		raise SecretServiceNotAvailableException(reason) from ex
+	except (ConnectionError, ValueError) as ex:
+		raise SecretServiceNotAvailableException(str(ex)) from ex
+
+
+class ClosingDBusConnectionWrapper:
+	"Ideally jeepney.integrate.blocking.DBusConnection has this functionality"
+	def __init__(self, connection: DBusConnection):
+		self._wrapped_connection = connection
+
+	def __getattribute__(self, name):
+		if name in ('_wrapped_connection', 'close'):
+			return object.__getattribute__(self, name)
+		return getattr(self._wrapped_connection, name)
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_value, traceback):  # type: ignore
+		self.close()
+
+	def close(self):
+		return self._wrapped_connection.sock.close()

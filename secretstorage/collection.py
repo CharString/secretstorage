@@ -23,7 +23,7 @@ from secretstorage.exceptions import LockedException, ItemNotFoundException, \
  PromptDismissedException
 from secretstorage.item import Item
 from secretstorage.util import DBusAddressWrapper, exec_prompt, \
- format_secret, open_session, unlock_objects
+ format_secret, open_session, unlock_objects, dbus_init
 
 COLLECTION_IFACE = SS_PREFIX + 'Collection'
 SERVICE_IFACE    = SS_PREFIX + 'Service'
@@ -33,14 +33,14 @@ SESSION_COLLECTION = '/org/freedesktop/secrets/collection/session'
 class Collection(object):
 	"""Represents a collection."""
 
-	def __init__(self, connection: DBusConnection,
+	def __init__(self, connection: DBusConnection = None,
 	             collection_path: str = DEFAULT_COLLECTION,
 	             session: Optional[Session] = None) -> None:
-		self.connection = connection
+		self.connection = connection or dbus_init()
 		self.session = session
 		self.collection_path = collection_path
 		self._collection = DBusAddressWrapper(
-			collection_path, COLLECTION_IFACE, connection)
+			collection_path, COLLECTION_IFACE, self.connection)
 		self._collection.get_property('Label')
 
 	def is_locked(self) -> bool:
@@ -123,6 +123,15 @@ class Collection(object):
 		new_item, prompt = self._collection.call('CreateItem', 'a{sv}(oayays)b',
 		                                         properties, _secret, replace)
 		return Item(self.connection, new_item, self.session)
+
+	def close(self):
+		return self.connection.close()
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_value, traceback):
+		self.close()
 
 def create_collection(connection: DBusConnection, label: str, alias: str = '',
                       session: Optional[Session] = None) -> Collection:

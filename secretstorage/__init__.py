@@ -20,17 +20,23 @@ from secretstorage.util import add_match_rules
 __version_tuple__ = (3, 1, 0)
 __version__ = '.'.join(map(str, __version_tuple__))
 
+
 def dbus_init() -> DBusConnection:
 	"""Returns a new connection to the session bus, instance of
 	jeepney's :class:`DBusConnection` class. This connection can
 	then be passed to various SecretStorage functions, such as
 	:func:`~secretstorage.collection.get_default_collection`.
 
-	.. warning::
-	   If you use this function directly, it may result in resource
-	   leak as the D-Bus socket will not be closed automatically.
-	   We recommend to use :class:`create_connection` context manager
-	   instead, which will close the socket on exit.
+	It can be used as conext manager that closes the D-Bus socket
+	automatically on exit.
+
+	Example of usage:
+
+	.. code-block:: python
+
+	   with secretstorage.dbus_init() as conn:
+		   collection = secretstorage.get_default_collection(conn)
+		   items = collection.search_items({'application': 'myapp'})
 
 	.. versionchanged:: 3.0
 	   Before the port to Jeepney, this function returned an
@@ -42,7 +48,7 @@ def dbus_init() -> DBusConnection:
 	try:
 		connection = connect_and_authenticate()
 		add_match_rules(connection)
-		return connection
+		return ClosingDBusConnectionWrapper(connection)
 	except KeyError as ex:
 		# os.environ['DBUS_SESSION_BUS_ADDRESS'] may raise it
 		reason = "Environment variable {} is unset".format(ex.args[0])
@@ -51,23 +57,18 @@ def dbus_init() -> DBusConnection:
 		raise SecretServiceNotAvailableException(str(ex)) from ex
 
 
-class create_connection:
-	"""A context manager that returns a new connection to the session bus,
-	that will be an instance of jeepney's :class:`DBusConnection` class.
+class ClosingDBusConnectionWrapper:
+	"Ideally jeepney.integrate.blocking.DBusConnection has this functionality"
+	def __init__(self, connection: DBusConnection):
+		self._wrapped_connection = connection
 
-	The D-Bus socket will be automatically closed on exit.
+	def __getattribute__(self, name):
+		if name == '_wrapped_connection':
+			return object.__getattribute__(self, name)
+		return getattr(self._wrapped_connection, name)
 
-	Example of usage:
-
-	.. code-block:: python
-
-	   with secretstorage.create_connection() as conn:
-	       collection = secretstorage.get_default_collection(conn)
-	       items = collection.search_items({'application': 'myapp'})
-	"""
 	def __enter__(self) -> DBusConnection:
-		self.connection = dbus_init()
-		return self.connection
+		return self
 
 	def __exit__(self, exc_type, exc_value, traceback):  # type: ignore
-		self.connection.sock.close()
+		self._wrapped_connection.sock.close()

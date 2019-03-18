@@ -5,15 +5,15 @@
 # This file tests the secretstorage.create_connection() context manager.
 
 import unittest
-from secretstorage import create_connection, get_any_collection
+from secretstorage import dbus_init, get_any_collection
 
 
 class ContextManagerTest(unittest.TestCase):
 	"""A test case that tests the :class:`secretstorage.create_connection`
 	context manager."""
 
-	def test_create_connection(self) -> None:
-		with create_connection() as connection:
+	def test_dbus_init_works_as_a_context_manager(self) -> None:
+		with dbus_init() as connection:
 			collection = get_any_collection(connection)
 			self.assertIsNotNone(collection)
 			label = collection.get_label()
